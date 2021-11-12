@@ -13,4 +13,7 @@ export const configProviderProps = {
       } as const)
     },
   }),
+  theme: buildProp({
+    type: definePropType(Object),
+  }),
 }

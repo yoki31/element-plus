@@ -25,6 +25,14 @@ config-provider/button
 
 :::
 
+## theme configurations
+
+:::demo
+
+config-provider/theme
+
+:::
+
 ## Config Provider Attributes
 
 | Attribute | Description                                                                                                                                                       | Type                                 | Accepted Values                                                                         | Default                 |

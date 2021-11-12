@@ -16,7 +16,7 @@
     :disabled="buttonDisabled || loading"
     :autofocus="autofocus"
     :type="nativeType"
-    :style="buttonStyle"
+    :style="inlineStyles"
     @click="handleClick"
   >
     <el-icon v-if="loading" class="is-loading">
@@ -38,7 +38,7 @@
 import { computed, inject, defineComponent, Text, ref } from 'vue'
 import { useCssVar } from '@vueuse/core'
 import { ElIcon } from '@element-plus/components/icon'
-import { useFormItem, useGlobalConfig } from '@element-plus/hooks'
+import { useFormItem, useGlobalConfig, useTheme } from '@element-plus/hooks'
 import { elButtonGroupKey, elFormKey } from '@element-plus/tokens'
 import { Loading } from '@element-plus/icons'
 
@@ -83,6 +83,42 @@ export default defineComponent({
     const buttonType = computed(
       () => props.type || elBtnGroup?.type || 'default'
     )
+
+    // generate inline styles
+    const themeConfig = useTheme()
+
+    function getKebabCase(str) {
+      const arr = str.split('')
+      str = arr
+        .map((item) => {
+          if (item.toUpperCase() === item) {
+            return `-${item.toLowerCase()}`
+          } else {
+            return item
+          }
+        })
+        .join('')
+      return str
+    }
+
+    const inlineStyles = computed(() => {
+      const isDefault = ![
+        'primary',
+        'success',
+        'warning',
+        'info',
+        'danger',
+        'text',
+      ].includes(props.type)
+      const theme = isDefault
+        ? themeConfig.value.button['default']
+        : themeConfig.value.button[props.type]
+      const styles = {}
+      Object.keys(theme).forEach((key) => {
+        styles[`--el-button-${getKebabCase(key)}`] = theme[key]
+      })
+      return styles
+    })
 
     // calculate hover & active color by color
     const buttonStyle = computed(() => {
@@ -138,6 +174,7 @@ export default defineComponent({
     return {
       buttonRef,
       buttonStyle,
+      inlineStyles,
 
       buttonSize,
       buttonType,
