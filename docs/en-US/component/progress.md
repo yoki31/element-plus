@@ -7,32 +7,6 @@ lang: en-US
 
 Progress is used to show the progress of current operation, and inform the user the current status.
 
-<style lang="scss">
-$namespace: el;
-.example-showcase .demo-progress {
-  .#{$namespace}-progress--line {
-    margin-bottom: 15px;
-    width: 350px;
-  }
-
-  .#{$namespace}-progress--circle {
-    margin-right: 15px;
-  }
-
-  .percentage-value {
-    display: block;
-    margin-top: 10px;
-    font-size: 28px;
-  }
-
-  .percentage-label {
-    display: block;
-    margin-top: 10px;
-    font-size: 12px;
-  }
-}
-</style>
-
 ## Linear progress bar
 
 :::demo Use `percentage` attribute to set the percentage. It's **required** and must be between `0-100`. You can custom text format by setting `format`.
@@ -97,9 +71,9 @@ progress/indeterminate-progress
 
 ## Attributes
 
-| Attribute      | Description                                                                           | Type                  | Accepted Values           | Default |
+| Name           | Description                                                                           | Type                  | Accepted Values           | Default |
 | -------------- | ------------------------------------------------------------------------------------- | --------------------- | ------------------------- | ------- |
-| percentage     | percentage, **required**                                                              | number                | 0-100                     | 0       |
+| percentage     | percentage, **required**                                                              | number                | (0-100)                   | 0       |
 | type           | the type of progress bar                                                              | string                | line/circle/dashboard     | line    |
 | stroke-width   | the width of progress bar                                                             | number                | —                         | 6       |
 | text-inside    | whether to place the percentage inside progress bar, only works when `type` is 'line' | boolean               | —                         | false   |
@@ -114,6 +88,6 @@ progress/indeterminate-progress
 
 ## Slots
 
-| Name    | Description                                     |
-| ------- | ----------------------------------------------- |
-| default | Customized content, parameter is { percentage } |
+| Name    | Description                                       |
+| ------- | ------------------------------------------------- |
+| default | Customized content, parameter is `{ percentage }` |

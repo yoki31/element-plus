@@ -11,7 +11,7 @@ A simple confirmation dialog of an element click action.
 
 Popconfirm is similar to Popover. So for some duplicated attributes, please refer to the documentation of Popover.
 
-:::demo Only `title` attribute is avaliable in Popconfirm, `content` will be ignored.
+:::demo Only `title` attribute is available in Popconfirm, `content` will be ignored.
 
 popconfirm/basic-usage
 
@@ -39,16 +39,19 @@ popconfirm/trigger-event
 
 ## Attributes
 
-| Attribute         | Description         | Type               | Accepted Values | Default        |
-| ----------------- | ------------------- | ------------------ | --------------- | -------------- |
-| title             | Title               | String             | —               | —              |
-| confirmButtonText | Confirm button text | String             | —               | —              |
-| cancelButtonText  | Cancel button text  | String             | —               | —              |
-| confirmButtonType | Confirm button type | String             | —               | Primary        |
-| cancelButtonType  | Cancel button type  | String             | —               | Text           |
-| icon              | Icon Component      | String / Component | —               | QuestionFilled |
-| iconColor         | Icon color          | String             | —               | #f90           |
-| hideIcon          | is hide Icon        | Boolean            | —               | false          |
+| Name                | Description                                                                         | Type                  | Accepted Values                                    | Default         |
+| ------------------- | ----------------------------------------------------------------------------------- | --------------------- | -------------------------------------------------- | --------------- |
+| title               | Title                                                                               | String                | —                                                  | —               |
+| confirm-button-text | Confirm button text                                                                 | String                | —                                                  | —               |
+| cancel-button-text  | Cancel button text                                                                  | String                | —                                                  | —               |
+| confirm-button-type | Confirm button type                                                                 | String                | primary / success / warning / danger / info / text | primary         |
+| cancel-button-type  | Cancel button type                                                                  | String                | primary / success / warning / danger / info / text | text            |
+| icon                | Icon Component                                                                      | `string \| Component` | —                                                  | QuestionFilled  |
+| icon-color          | Icon color                                                                          | String                | —                                                  | #f90            |
+| hide-icon           | is hide Icon                                                                        | Boolean               | —                                                  | false           |
+| teleported          | whether popconfirm is teleported to the body                                        | boolean               | true / false                                       | true            |
+| persistent          | when popconfirm inactive and `persistent` is `false` , popconfirm will be destroyed | boolean               | —                                                  | false           |
+| width               | popconfirm width                                                                    | string/number         | -                                                  | Min width 150px |
 
 ## Slots
 
@@ -58,7 +61,7 @@ popconfirm/trigger-event
 
 ## Events
 
-| Event Name | Description                        | Parameters |
-| ---------- | ---------------------------------- | ---------- |
-| confirm    | triggers when click confirm button | —          |
-| cancel     | triggers when click cancel button  | —          |
+| Name    | Description                        | Parameters |
+| ------- | ---------------------------------- | ---------- |
+| confirm | triggers when click confirm button | —          |
+| cancel  | triggers when click cancel button  | —          |

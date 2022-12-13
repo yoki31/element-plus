@@ -1,30 +1,45 @@
+// @ts-nocheck
 import {
-  inject,
-  nextTick,
   computed,
-  watch,
-  ref,
+  nextTick,
   reactive,
+  ref,
   shallowRef,
+  toRaw,
   triggerRef,
+  watch,
 } from 'vue'
 import { isObject, toRawType } from '@vue/shared'
-import lodashDebounce from 'lodash/debounce'
-import isEqual from 'lodash/isEqual'
-import { UPDATE_MODEL_EVENT, CHANGE_EVENT } from '@element-plus/utils/constants'
-import { EVENT_CODE } from '@element-plus/utils/aria'
-import { useLocaleInject } from '@element-plus/hooks'
-import isServer from '@element-plus/utils/isServer'
-import scrollIntoView from '@element-plus/utils/scroll-into-view'
-import { isKorean } from '@element-plus/utils/isDef'
-import { getValueByPath, useGlobalConfig } from '@element-plus/utils/util'
-import { elFormKey, elFormItemKey } from '@element-plus/tokens'
+import { get, isEqual, debounce as lodashDebounce } from 'lodash-unified'
+import { isClient } from '@vueuse/core'
+import {
+  CHANGE_EVENT,
+  EVENT_CODE,
+  UPDATE_MODEL_EVENT,
+} from '@element-plus/constants'
+import {
+  debugWarn,
+  getComponentSize,
+  isFunction,
+  isKorean,
+  isNumber,
+  isString,
+  scrollIntoView,
+} from '@element-plus/utils'
+import {
+  useDeprecated,
+  useFormItem,
+  useLocale,
+  useNamespace,
+  useSize,
+} from '@element-plus/hooks'
 
+import type { ComponentPublicInstance } from 'vue'
+import type ElTooltip from '@element-plus/components/tooltip'
 import type { QueryChangeCtx, SelectOptionProxy } from './token'
-import type { ElFormContext, ElFormItemContext } from '@element-plus/tokens'
 
 export function useSelectStates(props) {
-  const { t } = useLocaleInject()
+  const { t } = useLocale()
   return reactive({
     options: new Map(),
     cachedOptions: new Map(),
@@ -33,7 +48,6 @@ export function useSelectStates(props) {
     selected: props.multiple ? [] : ({} as any),
     inputLength: 20,
     inputWidth: 0,
-    initialInputHeight: 0,
     optionsCount: 0,
     filteredOptionsCount: 0,
     visible: false,
@@ -48,37 +62,53 @@ export function useSelectStates(props) {
     menuVisibleOnFocus: false,
     isOnComposition: false,
     isSilentBlur: false,
-    prefixWidth: null,
+    prefixWidth: 11,
     tagInMultiLine: false,
+    mouseEnter: false,
   })
 }
 
 type States = ReturnType<typeof useSelectStates>
 
 export const useSelect = (props, states: States, ctx) => {
-  const ELEMENT = useGlobalConfig()
-  const { t } = useLocaleInject()
+  const { t } = useLocale()
+  const ns = useNamespace('select')
+
+  useDeprecated(
+    {
+      from: 'suffixTransition',
+      replacement: 'override style scheme',
+      version: '2.3.0',
+      scope: 'props',
+      ref: 'https://element-plus.org/en-US/component/select.html#select-attributes',
+    },
+    computed(() => props.suffixTransition === false)
+  )
 
   // template refs
-  const reference = ref(null)
-  const input = ref(null)
-  const popper = ref(null)
-  const tags = ref(null)
+  const reference = ref<ComponentPublicInstance<{
+    focus: () => void
+    blur: () => void
+    input: HTMLInputElement
+  }> | null>(null)
+  const input = ref<HTMLInputElement | null>(null)
+  const tooltipRef = ref<InstanceType<typeof ElTooltip> | null>(null)
+  const tags = ref<HTMLElement | null>(null)
   const selectWrapper = ref<HTMLElement | null>(null)
-  const scrollbar = ref(null)
+  const scrollbar = ref<{
+    handleScroll: () => void
+  } | null>(null)
   const hoverOption = ref(-1)
   const queryChange = shallowRef<QueryChangeCtx>({ query: '' })
   const groupQueryChange = shallowRef('')
 
-  // inject
-  const elForm = inject(elFormKey, {} as ElFormContext)
-  const elFormItem = inject(elFormItemKey, {} as ElFormItemContext)
+  const { form, formItem } = useFormItem()
 
   const readonly = computed(
     () => !props.filterable || props.multiple || !states.visible
   )
 
-  const selectDisabled = computed(() => props.disabled || elForm.disabled)
+  const selectDisabled = computed(() => props.disabled || form?.disabled)
 
   const showClose = computed(() => {
     const hasValue = props.multiple
@@ -95,10 +125,15 @@ export const useSelect = (props, states: States, ctx) => {
     return criteria
   })
   const iconComponent = computed(() =>
-    props.remote && props.filterable ? '' : props.suffixIcon
+    props.remote && props.filterable && !props.remoteShowSuffix
+      ? ''
+      : props.suffixIcon
   )
   const iconReverse = computed(() =>
-    iconComponent.value && states.visible ? 'is-reverse' : ''
+    ns.is(
+      'reverse',
+      iconComponent.value && states.visible && props.suffixTransition
+    )
   )
 
   const debounce = computed(() => (props.remote ? 300 : 0))
@@ -146,21 +181,24 @@ export const useSelect = (props, states: States, ctx) => {
     )
   })
 
-  const selectSize = computed(
-    () => props.size || elFormItem.size || ELEMENT.size
-  )
+  const selectSize = useSize()
 
   const collapseTagSize = computed(() =>
-    ['small', 'mini'].indexOf(selectSize.value) > -1 ? 'mini' : 'small'
+    ['small'].includes(selectSize.value) ? 'small' : 'default'
   )
 
-  const dropMenuVisible = computed(
-    () => states.visible && emptyText.value !== false
-  )
+  const dropMenuVisible = computed({
+    get() {
+      return states.visible && emptyText.value !== false
+    },
+    set(val: boolean) {
+      states.visible = val
+    },
+  })
 
   // watch
   watch(
-    () => selectDisabled.value,
+    [() => selectDisabled.value, () => selectSize.value, () => form?.size],
     () => {
       nextTick(() => {
         resetInputHeight()
@@ -194,8 +232,8 @@ export const useSelect = (props, states: States, ctx) => {
       if (props.filterable && !props.multiple) {
         states.inputLength = 20
       }
-      if (!isEqual(val, oldVal)) {
-        elFormItem.validate?.('change')
+      if (!isEqual(val, oldVal) && props.validateEvent) {
+        formItem?.validate('change').catch((err) => debugWarn(err))
       }
     },
     {
@@ -208,6 +246,14 @@ export const useSelect = (props, states: States, ctx) => {
     () => states.visible,
     (val) => {
       if (!val) {
+        if (props.filterable) {
+          if (isFunction(props.filterMethod)) {
+            props.filterMethod('')
+          }
+          if (isFunction(props.remoteMethod)) {
+            props.remoteMethod('')
+          }
+        }
         input.value && input.value.blur()
         states.query = ''
         states.previousQuery = null
@@ -245,16 +291,16 @@ export const useSelect = (props, states: States, ctx) => {
           }
         }
       } else {
-        popper.value?.update?.()
+        tooltipRef.value?.updatePopper?.()
 
         if (props.filterable) {
           states.filteredOptionsCount = states.optionsCount
           states.query = props.remote ? '' : states.selectedLabel
           if (props.multiple) {
-            input.value.focus()
+            input.value?.focus()
           } else {
             if (states.selectedLabel) {
-              states.currentPlaceholder = states.selectedLabel
+              states.currentPlaceholder = `${states.selectedLabel}`
               states.selectedLabel = ''
             }
           }
@@ -276,13 +322,15 @@ export const useSelect = (props, states: States, ctx) => {
     // https://github.com/vuejs/vue-next/issues/2116
     () => states.options.entries(),
     () => {
-      if (isServer) return
-      popper.value?.update?.()
+      if (!isClient) return
+      tooltipRef.value?.updatePopper?.()
       if (props.multiple) {
         resetInputHeight()
       }
       const inputs = selectWrapper.value?.querySelectorAll('input') || []
-      if ([].indexOf.call(inputs, document.activeElement) === -1) {
+      if (
+        !Array.from(inputs).includes(document.activeElement as HTMLInputElement)
+      ) {
         setSelected()
       }
       if (
@@ -301,8 +349,10 @@ export const useSelect = (props, states: States, ctx) => {
   watch(
     () => states.hoverIndex,
     (val) => {
-      if (typeof val === 'number' && val > -1) {
+      if (isNumber(val) && val > -1) {
         hoverOption.value = optionsArray.value[val] || {}
+      } else {
+        hoverOption.value = {}
       }
       optionsArray.value.forEach((option) => {
         option.hover = hoverOption.value === option
@@ -315,58 +365,58 @@ export const useSelect = (props, states: States, ctx) => {
     if (props.collapseTags && !props.filterable) return
     nextTick(() => {
       if (!reference.value) return
-      const inputChildNodes = reference.value.$el.childNodes
-      const input = [].filter.call(
-        inputChildNodes,
-        (item) => item.tagName === 'INPUT'
-      )[0]
+      const input = reference.value.$el.querySelector(
+        'input'
+      ) as HTMLInputElement
       const _tags = tags.value
-      const sizeInMap = states.initialInputHeight || 40
-      input.style.height =
-        states.selected.length === 0
-          ? `${sizeInMap}px`
-          : `${Math.max(
+
+      const sizeInMap = getComponentSize(selectSize.value || form?.size)
+      // it's an inner input so reduce it by 2px.
+      input.style.height = `${
+        (states.selected.length === 0
+          ? sizeInMap
+          : Math.max(
               _tags
                 ? _tags.clientHeight + (_tags.clientHeight > sizeInMap ? 6 : 0)
                 : 0,
               sizeInMap
-            )}px`
+            )) - 2
+      }px`
 
-      states.tagInMultiLine = parseFloat(input.style.height) > sizeInMap
+      states.tagInMultiLine = Number.parseFloat(input.style.height) >= sizeInMap
 
       if (states.visible && emptyText.value !== false) {
-        popper.value?.update?.()
+        tooltipRef.value?.updatePopper?.()
       }
     })
   }
 
-  const handleQueryChange = (val) => {
+  const handleQueryChange = async (val) => {
     if (states.previousQuery === val || states.isOnComposition) return
     if (
       states.previousQuery === null &&
-      (typeof props.filterMethod === 'function' ||
-        typeof props.remoteMethod === 'function')
+      (isFunction(props.filterMethod) || isFunction(props.remoteMethod))
     ) {
       states.previousQuery = val
       return
     }
     states.previousQuery = val
     nextTick(() => {
-      if (states.visible) popper.value?.update?.()
+      if (states.visible) tooltipRef.value?.updatePopper?.()
     })
     states.hoverIndex = -1
     if (props.multiple && props.filterable) {
       nextTick(() => {
-        const length = input.value.length * 15 + 20
+        const length = input.value!.value.length * 15 + 20
         states.inputLength = props.collapseTags ? Math.min(50, length) : length
         managePlaceholder()
         resetInputHeight()
       })
     }
-    if (props.remote && typeof props.remoteMethod === 'function') {
+    if (props.remote && isFunction(props.remoteMethod)) {
       states.hoverIndex = -1
       props.remoteMethod(val)
-    } else if (typeof props.filterMethod === 'function') {
+    } else if (isFunction(props.filterMethod)) {
       props.filterMethod(val)
       triggerRef(groupQueryChange)
     } else {
@@ -381,13 +431,14 @@ export const useSelect = (props, states: States, ctx) => {
       (props.filterable || props.remote) &&
       states.filteredOptionsCount
     ) {
+      await nextTick()
       checkDefaultFirstOption()
     }
   }
 
   const managePlaceholder = () => {
     if (states.currentPlaceholder !== '') {
-      states.currentPlaceholder = input.value.value
+      states.currentPlaceholder = input.value!.value
         ? ''
         : states.cachedPlaceHolder
     }
@@ -405,9 +456,9 @@ export const useSelect = (props, states: States, ctx) => {
    */
   const checkDefaultFirstOption = () => {
     const optionsInDropdown = optionsArray.value.filter(
-      (n) => n.visible && !n.disabled && !n.groupDisabled
+      (n) => n.visible && !n.disabled && !n.states.groupDisabled
     )
-    const userCreatedOption = optionsInDropdown.filter((n) => n.created)[0]
+    const userCreatedOption = optionsInDropdown.find((n) => n.created)
     const firstOriginOption = optionsInDropdown[0]
     states.hoverIndex = getValueIndex(
       optionsArray.value,
@@ -428,8 +479,10 @@ export const useSelect = (props, states: States, ctx) => {
       states.selected = option
       if (props.filterable) states.query = states.selectedLabel
       return
+    } else {
+      states.selectedLabel = ''
     }
-    const result = []
+    const result: any[] = []
     if (Array.isArray(props.modelValue)) {
       props.modelValue.forEach((value) => {
         result.push(getOption(value))
@@ -450,8 +503,7 @@ export const useSelect = (props, states: States, ctx) => {
     for (let i = states.cachedOptions.size - 1; i >= 0; i--) {
       const cachedOption = cachedOptionsArray.value[i]
       const isEqualValue = isObjectValue
-        ? getValueByPath(cachedOption.value, props.valueKey) ===
-          getValueByPath(value, props.valueKey)
+        ? get(cachedOption.value, props.valueKey) === get(value, props.valueKey)
         : cachedOption.value === value
       if (isEqualValue) {
         option = {
@@ -463,7 +515,11 @@ export const useSelect = (props, states: States, ctx) => {
       }
     }
     if (option) return option
-    const label = !isObjectValue && !isNull && !isUndefined ? value : ''
+    const label = isObjectValue
+      ? value.label
+      : !isNull && !isUndefined
+      ? value
+      : ''
     const newOption = {
       value,
       currentLabel: label,
@@ -487,10 +543,7 @@ export const useSelect = (props, states: States, ctx) => {
             null,
             states.selected.map((selected) => {
               return optionsArray.value.findIndex((item) => {
-                return (
-                  getValueByPath(item, valueKey) ===
-                  getValueByPath(selected, valueKey)
-                )
+                return get(item, valueKey) === get(selected, valueKey)
               })
             })
           )
@@ -503,8 +556,8 @@ export const useSelect = (props, states: States, ctx) => {
 
   const handleResize = () => {
     resetInputWidth()
-    popper.value?.update?.()
-    if (props.multiple) resetInputHeight()
+    tooltipRef.value?.updatePopper?.()
+    if (props.multiple && !props.filterable) resetInputHeight()
   }
 
   const resetInputWidth = () => {
@@ -559,14 +612,15 @@ export const useSelect = (props, states: States, ctx) => {
 
   const deleteSelected = (event) => {
     event.stopPropagation()
-    const value = props.multiple ? [] : ''
-    if (typeof value !== 'string') {
+    const value: string | any[] = props.multiple ? [] : ''
+    if (!isString(value)) {
       for (const item of states.selected) {
         if (item.isDisabled) value.push(item.value)
       }
     }
     ctx.emit(UPDATE_MODEL_EVENT, value)
     emitChange(value)
+    states.hoverIndex = -1
     states.visible = false
     ctx.emit('clear')
   }
@@ -590,7 +644,7 @@ export const useSelect = (props, states: States, ctx) => {
         handleQueryChange('')
         states.inputLength = 20
       }
-      if (props.filterable) input.value.focus()
+      if (props.filterable) input.value?.focus()
     } else {
       ctx.emit(UPDATE_MODEL_EVENT, option.value)
       emitChange(option.value)
@@ -604,13 +658,13 @@ export const useSelect = (props, states: States, ctx) => {
     })
   }
 
-  const getValueIndex = (arr = [], value) => {
+  const getValueIndex = (arr: any[] = [], value) => {
     if (!isObject(value)) return arr.indexOf(value)
 
     const valueKey = props.valueKey
     let index = -1
     arr.some((item, i) => {
-      if (getValueByPath(item, valueKey) === getValueByPath(value, valueKey)) {
+      if (toRaw(get(item, valueKey)) === get(value, valueKey)) {
         index = i
         return true
       }
@@ -623,7 +677,7 @@ export const useSelect = (props, states: States, ctx) => {
     states.softFocus = true
     const _input = input.value || reference.value
     if (_input) {
-      _input.focus()
+      _input?.focus()
     }
   }
 
@@ -640,12 +694,12 @@ export const useSelect = (props, states: States, ctx) => {
       }
     }
 
-    if (popper.value && target) {
-      const menu = popper.value?.popperRef?.querySelector?.(
-        '.el-select-dropdown__wrap'
+    if (tooltipRef.value && target) {
+      const menu = tooltipRef.value?.popperRef?.contentRef?.querySelector?.(
+        `.${ns.be('dropdown', 'wrap')}`
       )
       if (menu) {
-        scrollIntoView(menu, target)
+        scrollIntoView(menu as HTMLElement, target)
       }
     }
     scrollbar.value?.handleScroll()
@@ -658,15 +712,17 @@ export const useSelect = (props, states: States, ctx) => {
     states.cachedOptions.set(vm.value, vm)
   }
 
-  const onOptionDestroy = (key) => {
-    states.optionsCount--
-    states.filteredOptionsCount--
-    states.options.delete(key)
+  const onOptionDestroy = (key, vm: SelectOptionProxy) => {
+    if (states.options.get(key) === vm) {
+      states.optionsCount--
+      states.filteredOptionsCount--
+      states.options.delete(key)
+    }
   }
 
   const resetInputState = (e: KeyboardEvent) => {
     if (e.code !== EVENT_CODE.backspace) toggleLastOptionHitState(false)
-    states.inputLength = input.value.length * 15 + 20
+    states.inputLength = input.value!.value.length * 15 + 20
     resetInputHeight()
   }
 
@@ -699,13 +755,13 @@ export const useSelect = (props, states: States, ctx) => {
     nextTick(() => scrollToOption(states.selected))
   }
 
-  const handleFocus = (event) => {
+  const handleFocus = (event: FocusEvent) => {
     if (!states.softFocus) {
       if (props.automaticDropdown || props.filterable) {
-        states.visible = true
-        if (props.filterable) {
+        if (props.filterable && !states.visible) {
           states.menuVisibleOnFocus = true
         }
+        states.visible = true
       }
       ctx.emit('focus', event)
     } else {
@@ -715,10 +771,10 @@ export const useSelect = (props, states: States, ctx) => {
 
   const blur = () => {
     states.visible = false
-    reference.value.blur()
+    reference.value?.blur()
   }
 
-  const handleBlur = (event: Event) => {
+  const handleBlur = (event: FocusEvent) => {
     // https://github.com/ElemeFE/element/pull/10822
     nextTick(() => {
       if (states.isSilentBlur) {
@@ -738,16 +794,28 @@ export const useSelect = (props, states: States, ctx) => {
     states.visible = false
   }
 
-  const toggleMenu = () => {
-    if (props.automaticDropdown) return
+  const handleKeydownEscape = (event: KeyboardEvent) => {
+    if (states.visible) {
+      event.preventDefault()
+      event.stopPropagation()
+      states.visible = false
+    }
+  }
+
+  const toggleMenu = (e?: PointerEvent) => {
+    if (e && !states.mouseEnter) {
+      return
+    }
     if (!selectDisabled.value) {
       if (states.menuVisibleOnFocus) {
         states.menuVisibleOnFocus = false
       } else {
-        states.visible = !states.visible
+        if (!tooltipRef.value || !tooltipRef.value.isFocusInsideContent()) {
+          states.visible = !states.visible
+        }
       }
       if (states.visible) {
-        ;(input.value || reference.value).focus()
+        ;(input.value || reference.value)?.focus()
       }
     }
   }
@@ -763,9 +831,7 @@ export const useSelect = (props, states: States, ctx) => {
   }
 
   const getValueKey = (item) => {
-    return isObject(item.value)
-      ? getValueByPath(item.value, props.valueKey)
-      : item.value
+    return isObject(item.value) ? get(item.value, props.valueKey) : item.value
   }
 
   const optionsAllDisabled = computed(() =>
@@ -797,13 +863,21 @@ export const useSelect = (props, states: States, ctx) => {
       const option = optionsArray.value[states.hoverIndex]
       if (
         option.disabled === true ||
-        option.groupDisabled === true ||
+        option.states.groupDisabled === true ||
         !option.visible
       ) {
         navigateOptions(direction)
       }
       nextTick(() => scrollToOption(hoverOption.value))
     }
+  }
+
+  const handleMouseEnter = () => {
+    states.mouseEnter = true
+  }
+
+  const handleMouseLeave = () => {
+    states.mouseEnter = false
   }
 
   return {
@@ -839,6 +913,7 @@ export const useSelect = (props, states: States, ctx) => {
     handleBlur,
     handleClearClick,
     handleClose,
+    handleKeydownEscape,
     toggleMenu,
     selectOption,
     getValueKey,
@@ -850,9 +925,13 @@ export const useSelect = (props, states: States, ctx) => {
     // DOM ref
     reference,
     input,
-    popper,
+    tooltipRef,
     tags,
     selectWrapper,
     scrollbar,
+
+    // Mouser Event
+    handleMouseEnter,
+    handleMouseLeave,
   }
 }

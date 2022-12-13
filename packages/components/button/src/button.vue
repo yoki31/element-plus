@@ -1,98 +1,74 @@
 <template>
   <button
+    ref="_ref"
     :class="[
-      'el-button',
-      buttonType ? 'el-button--' + buttonType : '',
-      buttonSize ? 'el-button--' + buttonSize : '',
-      {
-        'is-disabled': buttonDisabled,
-        'is-loading': loading,
-        'is-plain': plain,
-        'is-round': round,
-        'is-circle': circle,
-      },
+      ns.b(),
+      ns.m(_type),
+      ns.m(_size),
+      ns.is('disabled', _disabled),
+      ns.is('loading', loading),
+      ns.is('plain', plain),
+      ns.is('round', round),
+      ns.is('circle', circle),
+      ns.is('text', text),
+      ns.is('link', link),
+      ns.is('has-bg', bg),
     ]"
-    :disabled="buttonDisabled || loading"
+    :aria-disabled="_disabled || loading"
+    :disabled="_disabled || loading"
     :autofocus="autofocus"
     :type="nativeType"
+    :style="buttonStyle"
     @click="handleClick"
   >
-    <el-icon v-if="loading" class="is-loading"><loading /></el-icon>
-    <el-icon v-else-if="icon">
-      <component :is="icon" />
+    <template v-if="loading">
+      <slot v-if="$slots.loading" name="loading" />
+      <el-icon v-else :class="ns.is('loading')">
+        <component :is="loadingIcon" />
+      </el-icon>
+    </template>
+    <el-icon v-else-if="icon || $slots.icon">
+      <component :is="icon" v-if="icon" />
+      <slot v-else name="icon" />
     </el-icon>
     <span
       v-if="$slots.default"
-      :class="{ 'el-button__text--expand': shouldAddSpace }"
+      :class="{ [ns.em('text', 'expand')]: shouldAddSpace }"
     >
-      <slot></slot>
+      <slot />
     </span>
   </button>
 </template>
 
-<script lang="ts">
-import { computed, inject, defineComponent, Text } from 'vue'
+<script lang="ts" setup>
 import { ElIcon } from '@element-plus/components/icon'
-import { useFormItem, useGlobalConfig } from '@element-plus/hooks'
-import { elButtonGroupKey, elFormKey } from '@element-plus/tokens'
-import { Loading } from '@element-plus/icons'
+import { useNamespace } from '@element-plus/hooks'
+import { useButton } from './use-button'
 import { buttonEmits, buttonProps } from './button'
+import { useButtonCustomStyle } from './button-custom'
 
-export default defineComponent({
+defineOptions({
   name: 'ElButton',
+})
 
-  components: {
-    ElIcon,
-    Loading,
-  },
+const props = defineProps(buttonProps)
+const emit = defineEmits(buttonEmits)
 
-  props: buttonProps,
-  emits: buttonEmits,
+const buttonStyle = useButtonCustomStyle(props)
+const ns = useNamespace('button')
+const { _ref, _size, _type, _disabled, shouldAddSpace, handleClick } =
+  useButton(props, emit)
 
-  setup(props, { emit, slots }) {
-    const elBtnGroup = inject(elButtonGroupKey, undefined)
-    const globalConfig = useGlobalConfig()
-    const autoInsertSpace = computed(() => {
-      return props.autoInsertSpace ?? globalConfig?.button.autoInsertSpace
-    })
-
-    // add space between two characters in Chinese
-    const shouldAddSpace = computed(() => {
-      const defaultSlot = slots.default?.()
-      if (autoInsertSpace.value && defaultSlot?.length === 1) {
-        const slot = defaultSlot[0]
-        if (slot?.type === Text) {
-          const text = slot.children
-          return /^\p{Unified_Ideograph}{2}$/u.test(text as string)
-        }
-      }
-      return false
-    })
-    const { size: buttonSize, disabled: buttonDisabled } = useFormItem({
-      size: computed(() => elBtnGroup?.size),
-    })
-    const buttonType = computed(
-      () => props.type || elBtnGroup?.type || 'default'
-    )
-
-    const elForm = inject(elFormKey, undefined)
-
-    const handleClick = (evt: MouseEvent) => {
-      if (props.nativeType === 'reset') {
-        elForm?.resetFields()
-      }
-      emit('click', evt)
-    }
-
-    return {
-      buttonSize,
-      buttonType,
-      buttonDisabled,
-
-      shouldAddSpace,
-
-      handleClick,
-    }
-  },
+defineExpose({
+  /** @description button html element */
+  ref: _ref,
+  /** @description button size */
+  size: _size,
+  /** @description button type */
+  type: _type,
+  /** @description button disabled */
+  disabled: _disabled,
+  /** @description whether adding space */
+  shouldAddSpace,
 })
 </script>

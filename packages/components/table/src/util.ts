@@ -1,27 +1,18 @@
-import { hasOwn } from '@vue/shared'
+// @ts-nocheck
 import { createPopper } from '@popperjs/core'
-import PopupManager from '@element-plus/utils/popup-manager'
-import { getValueByPath } from '@element-plus/utils/util'
-import { off, on } from '@element-plus/utils/dom'
-
+import { flatMap, get } from 'lodash-unified'
+import escapeHtml from 'escape-html'
+import { hasOwn, isArray, isBoolean, throwError } from '@element-plus/utils'
+import { useZIndex } from '@element-plus/hooks'
 import type {
-  PopperInstance,
   IPopperOptions,
+  PopperInstance,
 } from '@element-plus/components/popper'
-import type { Indexable, Nullable } from '@element-plus/utils/types'
+import type { Nullable } from '@element-plus/utils'
 import type { TableColumnCtx } from './table-column/defaults'
 
-export const getCell = function (event: Event): HTMLElement {
-  let cell = event.target as HTMLElement
-
-  while (cell && cell.tagName.toUpperCase() !== 'HTML') {
-    if (cell.tagName.toUpperCase() === 'TD') {
-      return cell
-    }
-    cell = cell.parentNode as HTMLElement
-  }
-
-  return null
+export const getCell = function (event: Event) {
+  return (event.target as HTMLElement)?.closest('td')
 }
 
 const isObject = function (obj: unknown): boolean {
@@ -54,9 +45,9 @@ export const orderBy = function <T>(
           if (!Array.isArray(sortBy)) {
             sortBy = [sortBy]
           }
-          return sortBy.map(function (by) {
+          return sortBy.map((by) => {
             if (typeof by === 'string') {
-              return getValueByPath(value, by)
+              return get(value, by)
             } else {
               return by(value, index, array)
             }
@@ -65,7 +56,7 @@ export const orderBy = function <T>(
         if (sortKey !== '$key') {
           if (isObject(value) && '$value' in value) value = value.$value
         }
-        return [isObject(value) ? getValueByPath(value, sortKey) : value]
+        return [isObject(value) ? get(value, sortKey) : value]
       }
   const compare = function (a, b) {
     if (sortMethod) {
@@ -82,14 +73,14 @@ export const orderBy = function <T>(
     return 0
   }
   return array
-    .map(function (value, index) {
+    .map((value, index) => {
       return {
         value,
         index,
         key: getKey ? getKey(value, index) : null,
       }
     })
-    .sort(function (a, b) {
+    .sort((a, b) => {
       let order = compare(a, b)
       if (!order) {
         // make stable https://en.wikipedia.org/wiki/Sorting_algorithm#Stability
@@ -107,7 +98,7 @@ export const getColumnById = function <T>(
   columnId: string
 ): null | TableColumnCtx<T> {
   let column = null
-  table.columns.forEach(function (item) {
+  table.columns.forEach((item) => {
     if (item.id === columnId) {
       column = item
     }
@@ -129,6 +120,8 @@ export const getColumnByKey = function <T>(
       break
     }
   }
+  if (!column)
+    throwError('ElTable', `No column matching with column-key: ${columnKey}`)
   return column
 }
 
@@ -136,9 +129,12 @@ export const getColumnByCell = function <T>(
   table: {
     columns: TableColumnCtx<T>[]
   },
-  cell: HTMLElement
+  cell: HTMLElement,
+  namespace: string
 ): null | TableColumnCtx<T> {
-  const matches = (cell.className || '').match(/el-table_[^\s]+/gm)
+  const matches = (cell.className || '').match(
+    new RegExp(`${namespace}-table_[^\\s]+`, 'gm')
+  )
   if (matches) {
     return getColumnById(table, matches[0])
   }
@@ -151,13 +147,13 @@ export const getRowIdentity = <T>(
 ): string => {
   if (!row) throw new Error('Row is required when get row identity')
   if (typeof rowKey === 'string') {
-    if (rowKey.indexOf('.') < 0) {
+    if (!rowKey.includes('.')) {
       return `${row[rowKey]}`
     }
     const key = rowKey.split('.')
     let current = row
-    for (let i = 0; i < key.length; i++) {
-      current = current[key[i]]
+    for (const element of key) {
+      current = current[element]
     }
     return `${current}`
   } else if (typeof rowKey === 'function') {
@@ -183,7 +179,7 @@ export function mergeOptions<T, K>(defaults: T, config: K): T & K {
     options[key] = defaults[key]
   }
   for (key in config) {
-    if (hasOwn(config as unknown as Indexable<any>, key)) {
+    if (hasOwn(config as unknown as Record<string, any>, key)) {
       const value = config[key]
       if (typeof value !== 'undefined') {
         options[key] = value
@@ -193,20 +189,22 @@ export function mergeOptions<T, K>(defaults: T, config: K): T & K {
   return options
 }
 
-export function parseWidth(width: number | string): number {
+export function parseWidth(width: number | string): number | string {
+  if (width === '') return width
   if (width !== undefined) {
-    width = parseInt(width as string, 10)
-    if (isNaN(width)) {
-      width = null
+    width = Number.parseInt(width as string, 10)
+    if (Number.isNaN(width)) {
+      width = ''
     }
   }
-  return +width
+  return width
 }
 
-export function parseMinWidth(minWidth): number {
-  if (typeof minWidth !== 'undefined') {
+export function parseMinWidth(minWidth: number | string): number | string {
+  if (minWidth === '') return minWidth
+  if (minWidth !== undefined) {
     minWidth = parseWidth(minWidth)
-    if (isNaN(minWidth)) {
+    if (Number.isNaN(minWidth)) {
       minWidth = 80
     }
   }
@@ -219,7 +217,7 @@ export function parseHeight(height: number | string) {
   }
   if (typeof height === 'string') {
     if (/^\d+(?:px)?$/.test(height)) {
-      return parseInt(height, 10)
+      return Number.parseInt(height, 10)
     } else {
       return height
     }
@@ -251,27 +249,28 @@ export function toggleRowStatus<T>(
   const index = statusArr.indexOf(row)
   const included = index !== -1
 
-  const addRow = () => {
-    statusArr.push(row)
+  const toggleStatus = (type: 'add' | 'remove') => {
+    if (type === 'add') {
+      statusArr.push(row)
+    } else {
+      statusArr.splice(index, 1)
+    }
     changed = true
-  }
-  const removeRow = () => {
-    statusArr.splice(index, 1)
-    changed = true
+    if (isArray(row.children)) {
+      row.children.forEach((item) => {
+        toggleRowStatus(statusArr, item, newVal ?? !included)
+      })
+    }
   }
 
-  if (typeof newVal === 'boolean') {
+  if (isBoolean(newVal)) {
     if (newVal && !included) {
-      addRow()
+      toggleStatus('add')
     } else if (!newVal && included) {
-      removeRow()
+      toggleStatus('remove')
     }
   } else {
-    if (included) {
-      removeRow()
-    } else {
-      addRow()
-    }
+    included ? toggleStatus('remove') : toggleStatus('add')
   }
   return changed
 }
@@ -313,43 +312,51 @@ export function walkTreeNode(
 export let removePopper
 
 export function createTablePopper(
+  parentNode: HTMLElement | undefined,
   trigger: HTMLElement,
   popperContent: string,
   popperOptions: Partial<IPopperOptions>,
   tooltipEffect: string
 ) {
+  const { nextZIndex } = useZIndex()
+  const ns = parentNode?.dataset.prefix
+  const scrollContainer = parentNode?.querySelector(`.${ns}-scrollbar__wrap`)
   function renderContent(): HTMLDivElement {
     const isLight = tooltipEffect === 'light'
     const content = document.createElement('div')
-    content.className = `el-popper ${isLight ? 'is-light' : 'is-dark'}`
+    content.className = `${ns}-popper ${isLight ? 'is-light' : 'is-dark'}`
+    popperContent = escapeHtml(popperContent)
     content.innerHTML = popperContent
-    content.style.zIndex = String(PopupManager.nextZIndex())
-    document.body.appendChild(content)
+    content.style.zIndex = String(nextZIndex())
+    // Avoid side effects caused by append to body
+    parentNode?.appendChild(content)
     return content
   }
   function renderArrow(): HTMLDivElement {
     const arrow = document.createElement('div')
-    arrow.className = 'el-popper__arrow'
-    arrow.style.bottom = '-4px'
+    arrow.className = `${ns}-popper__arrow`
     return arrow
   }
   function showPopper() {
     popperInstance && popperInstance.update()
   }
-  removePopper = function removePopper() {
+  removePopper?.()
+  removePopper = () => {
     try {
       popperInstance && popperInstance.destroy()
-      content && document.body.removeChild(content)
-      off(trigger, 'mouseenter', showPopper)
-      off(trigger, 'mouseleave', removePopper)
+      content && parentNode?.removeChild(content)
+      trigger.removeEventListener('mouseenter', showPopper)
+      trigger.removeEventListener('mouseleave', removePopper)
+      scrollContainer?.removeEventListener('scroll', removePopper)
+      removePopper = undefined
     } catch {}
   }
   let popperInstance: Nullable<PopperInstance> = null
   const content = renderContent()
   const arrow = renderArrow()
   content.appendChild(arrow)
-
   popperInstance = createPopper(trigger, content, {
+    strategy: 'absolute',
     modifiers: [
       {
         name: 'offset',
@@ -367,7 +374,152 @@ export function createTablePopper(
     ],
     ...popperOptions,
   })
-  on(trigger, 'mouseenter', showPopper)
-  on(trigger, 'mouseleave', removePopper)
+  trigger.addEventListener('mouseenter', showPopper)
+  trigger.addEventListener('mouseleave', removePopper)
+  scrollContainer?.addEventListener('scroll', removePopper)
   return popperInstance
+}
+
+function getCurrentColumns<T>(column: TableColumnCtx<T>): TableColumnCtx<T>[] {
+  if (column.children) {
+    return flatMap(column.children, getCurrentColumns)
+  } else {
+    return [column]
+  }
+}
+
+function getColSpan<T>(colSpan: number, column: TableColumnCtx<T>) {
+  return colSpan + column.colSpan
+}
+
+export const isFixedColumn = <T>(
+  index: number,
+  fixed: string | boolean,
+  store: any,
+  realColumns?: TableColumnCtx<T>[]
+) => {
+  let start = 0
+  let after = index
+  const columns = store.states.columns.value
+  if (realColumns) {
+    // fixed column supported in grouped header
+    const curColumns = getCurrentColumns(realColumns[index])
+    const preColumns = columns.slice(0, columns.indexOf(curColumns[0]))
+
+    start = preColumns.reduce(getColSpan, 0)
+    after = start + curColumns.reduce(getColSpan, 0) - 1
+  } else {
+    start = index
+  }
+  let fixedLayout
+  switch (fixed) {
+    case 'left':
+      if (after < store.states.fixedLeafColumnsLength.value) {
+        fixedLayout = 'left'
+      }
+      break
+    case 'right':
+      if (
+        start >=
+        columns.length - store.states.rightFixedLeafColumnsLength.value
+      ) {
+        fixedLayout = 'right'
+      }
+      break
+    default:
+      if (after < store.states.fixedLeafColumnsLength.value) {
+        fixedLayout = 'left'
+      } else if (
+        start >=
+        columns.length - store.states.rightFixedLeafColumnsLength.value
+      ) {
+        fixedLayout = 'right'
+      }
+  }
+  return fixedLayout
+    ? {
+        direction: fixedLayout,
+        start,
+        after,
+      }
+    : {}
+}
+
+export const getFixedColumnsClass = <T>(
+  namespace: string,
+  index: number,
+  fixed: string | boolean,
+  store: any,
+  realColumns?: TableColumnCtx<T>[],
+  offset = 0
+) => {
+  const classes: string[] = []
+  const { direction, start, after } = isFixedColumn(
+    index,
+    fixed,
+    store,
+    realColumns
+  )
+  if (direction) {
+    const isLeft = direction === 'left'
+    classes.push(`${namespace}-fixed-column--${direction}`)
+    if (
+      isLeft &&
+      after + offset === store.states.fixedLeafColumnsLength.value - 1
+    ) {
+      classes.push('is-last-column')
+    } else if (
+      !isLeft &&
+      start - offset ===
+        store.states.columns.value.length -
+          store.states.rightFixedLeafColumnsLength.value
+    ) {
+      classes.push('is-first-column')
+    }
+  }
+  return classes
+}
+
+function getOffset<T>(offset: number, column: TableColumnCtx<T>) {
+  return (
+    offset +
+    (column.realWidth === null || Number.isNaN(column.realWidth)
+      ? Number(column.width)
+      : column.realWidth)
+  )
+}
+
+export const getFixedColumnOffset = <T>(
+  index: number,
+  fixed: string | boolean,
+  store: any,
+  realColumns?: TableColumnCtx<T>[]
+) => {
+  const {
+    direction,
+    start = 0,
+    after = 0,
+  } = isFixedColumn(index, fixed, store, realColumns)
+  if (!direction) {
+    return
+  }
+  const styles: any = {}
+  const isLeft = direction === 'left'
+  const columns = store.states.columns.value
+  if (isLeft) {
+    styles.left = columns.slice(0, start).reduce(getOffset, 0)
+  } else {
+    styles.right = columns
+      .slice(after + 1)
+      .reverse()
+      .reduce(getOffset, 0)
+  }
+  return styles
+}
+
+export const ensurePosition = (style, key: string) => {
+  if (!style) return
+  if (!Number.isNaN(style[key])) {
+    style[key] = `${style[key]}px`
+  }
 }

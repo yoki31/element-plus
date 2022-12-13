@@ -1,7 +1,8 @@
-import type { configProviderProps } from '@element-plus/components/config-provider/config-provider'
-import type { InjectionKey, ExtractPropTypes } from 'vue'
+import type { ConfigProviderProps } from '@element-plus/components/config-provider'
+import type { InjectionKey, Ref } from 'vue'
 
-export type ConfigProvdierContext = ExtractPropTypes<typeof configProviderProps>
+export type ConfigProviderContext = Partial<ConfigProviderProps>
 
-export const configProviderContextKey: InjectionKey<ConfigProvdierContext> =
-  Symbol()
+export const configProviderContextKey: InjectionKey<
+  Ref<ConfigProviderContext>
+> = Symbol()
